@@ -4,6 +4,7 @@ import {
   Body,
   HttpException,
   HttpStatus,
+  Headers,
 } from '@nestjs/common';
 import { ShopifyService } from './shopify.service';
 import type { ShopifyAuthDto } from './shopify.dto';
@@ -16,7 +17,10 @@ export class ShopifyController extends BaseController {
   }
 
   @Post('installation')
-  async startInstallation(@Body() authData: ShopifyAuthDto) {
+  async startInstallation(
+    @Body() authData: ShopifyAuthDto,
+    @Headers('shop_code') shopCode?: string
+  ) {
     try {
       // Validate required fields
       if (
@@ -34,6 +38,11 @@ export class ShopifyController extends BaseController {
       // Save installation data to public.shopify_shops table
       const shopRecord =
         await this.shopifyService.saveInstallationData(authData);
+
+      // If shop_code is provided in headers, create schema immediately
+      if (shopCode) {
+        await this.shopifyService.createDynamicSchemaByCode(shopCode);
+      }
 
       return this.responseJson(
         shopRecord,
@@ -107,11 +116,11 @@ export class ShopifyController extends BaseController {
 
       // Update authorization status and record completion time
       const updatedShop = await this.shopifyService.updateAuthorizationStatus(
-        shopRecord.id,
+        shopRecord.shop_code,
       );
 
       // Create dynamic schema shopify_<shop_id> and shop_info table
-      await this.shopifyService.createDynamicSchema(shopRecord.id);
+      await this.shopifyService.createDynamicSchema(shopRecord.shop_code);
 
       return this.responseJson(
         result,

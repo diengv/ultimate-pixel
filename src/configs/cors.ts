@@ -1,7 +1,23 @@
 import { registerAs } from '@nestjs/config';
-import * as process from 'node:process';
+
+const origin = process.env.CORS_ORIGIN?.split(',') || [];
+
+/**
+ *
+ */
 export default registerAs('cors', () => ({
-  domain: ['localhost', '*.diengv.com', process.env.CLIENT_APP_URL],
-  ipBlock: [],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  origin: [
+    process.env.CLIENT_APP_URL,
+    '*localhost*',
+    '*.diengv.com',
+    ...origin,
+  ],
+  methods: process.env.CORS_METHODS?.split(',') || [
+    'GET',
+    'POST',
+    'PUT',
+    'DELETE',
+    'OPTIONS',
+  ],
+  credentials: process.env.CORS_CREDENTIALS === 'true',
 }));

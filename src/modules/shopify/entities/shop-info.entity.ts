@@ -2,15 +2,14 @@ import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-  DeleteDateColumn,
+  BaseEntity, PrimaryColumn,
 } from 'typeorm';
 
 @Entity('shop_info')
-export class ShopInfo {
-  @PrimaryGeneratedColumn()
-  id: number;
+export class ShopInfo extends BaseEntity{
+  @PrimaryColumn()
+  @Column({ type: 'varchar', length: 20, unique: true })
+  shop_code: string;
 
   @Column({ type: 'varchar', length: 255 })
   shop_domain: string;
@@ -38,13 +37,4 @@ export class ShopInfo {
 
   @Column({ type: 'json', nullable: true })
   additional_data: any;
-
-  @CreateDateColumn()
-  created_at: Date;
-
-  @UpdateDateColumn()
-  updated_at: Date;
-
-  @DeleteDateColumn()
-  deleted_at: Date;
 }

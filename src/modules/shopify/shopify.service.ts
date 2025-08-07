@@ -2,13 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import * as crypto from 'crypto';
-import { ShopifyShop } from './entities/shopify-shop.entity';
+import crypto from 'crypto';
 import { ShopInfo } from './entities/shop-info.entity';
 import { ShopifyAuthDto } from './shopify.dto';
 import { SchemaBuilderUtil } from './utils/schema-builder.util';
 import { DatabaseFunctionsUtil } from './utils/database-functions.util';
 import { TABLE_REGISTRY, DEFAULT_SHOP_TABLES, TableName } from './configs/table-schemas.config';
+import { ShopifyShop } from '../../core/entities/shopify-shop.entity';
 
 @Injectable()
 export class ShopifyService {
@@ -90,10 +90,10 @@ export class ShopifyService {
     }
   }
 
-  async updateAuthorizationStatus(shopId: number): Promise<ShopifyShop> {
+  async updateAuthorizationStatus(shopCode: string): Promise<ShopifyShop> {
     try {
       const shop = await this.shopifyShopRepository.findOne({
-        where: { id: shopId },
+        where: { shop_code: shopCode },
       });
 
       if (!shop) {
@@ -117,9 +117,6 @@ export class ShopifyService {
       // Create schema
       await this.schemaBuilder.createSchema(schemaName);
       
-      // Ensure standard database functions exist
-      await this.dbFunctions.createStandardFunctions();
-      
       // Create tables from configuration
       for (const tableName of tablesToCreate) {
         const tableDefinition = TABLE_REGISTRY[tableName];
@@ -134,6 +131,66 @@ export class ShopifyService {
     } catch (error) {
       console.error('Error creating dynamic schema:', error);
       throw new Error('Failed to create dynamic schema');
+    }
+  }
+
+  async createDynamicSchemaByCode(shopCode: string, tableNames?: TableName[]): Promise<void> {
+    try {
+      const schemaName = `shop_${shopCode}`;
+      const tablesToCreate = tableNames || DEFAULT_SHOP_TABLES;
+      
+      // Create schema
+      await this.schemaBuilder.createSchema(schemaName);
+      
+      // Create tables from configuration
+      for (const tableName of tablesToCreate) {
+        const tableDefinition = TABLE_REGISTRY[tableName];
+        if (tableDefinition) {
+          await this.schemaBuilder.createTable(tableDefinition, schemaName);
+          console.log(`Created table: ${schemaName}.${tableName}`);
+        } else {
+          console.warn(`Table definition not found for: ${tableName}`);
+        }
+      }
+
+    } catch (error) {
+      console.error('Error creating dynamic schema by code:', error);
+      throw new Error('Failed to create dynamic schema by code');
+    }
+  }
+
+  /**
+   * Get repository for entity in specific shop schema
+   */
+  getRepositoryForShop<T>(entityClass: any, shopCode: string): Repository<T> {
+    const schemaName = `shop_${shopCode}`;
+    return this.dataSource.getRepository(entityClass).extend({
+      metadata: {
+        ...this.dataSource.getRepository(entityClass).metadata,
+        schema: schemaName
+      }
+    });
+  }
+
+  /**
+   * Load entities from shop-specific schema
+   */
+  async loadEntitiesFromShopSchema<T>(entityClass: any, shopCode: string, options?: any): Promise<T[]> {
+    const schemaName = `shop_${shopCode}`;
+    try {
+      const queryBuilder = this.dataSource
+        .createQueryBuilder()
+        .select('*')
+        .from(`${schemaName}.${entityClass.name.toLowerCase()}`, entityClass.name.toLowerCase());
+      
+      if (options?.where) {
+        queryBuilder.where(options.where);
+      }
+      
+      return await queryBuilder.getRawMany();
+    } catch (error) {
+      console.error(`Error loading entities from schema ${schemaName}:`, error);
+      throw new Error(`Failed to load entities from shop schema`);
     }
   }
 
@@ -275,7 +332,7 @@ export class ShopifyService {
       throw new Error('Shop record not found');
     }
 
-    const schemaName = `shopify_${shopRecord.id}`;
+    const schemaName = `shopify_${shopRecord.shop_code}`;
     await this.dataSource.query(
       `INSERT INTO ${schemaName}.shop_info (shop_domain, access_token, created_at, updated_at) 
      VALUES ($1, $2, NOW(), NOW()) 

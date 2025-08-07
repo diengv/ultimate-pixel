@@ -25,7 +25,7 @@ async function bootstrap() {
       }
 
       // Check domains
-      const allowedDomains = corsConfig.domain || [];
+      const allowedDomains = corsConfig.origins || [];
       const isAllowedDomain = allowedDomains.some((domain: string) => {
         if (domain === 'localhost') {
           return origin.includes('localhost');
