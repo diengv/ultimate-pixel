@@ -1,9 +1,7 @@
 import { 
   TableDefinition, 
-  ColumnDefinition, 
-  ColumnType, 
+  ColumnType,
   TimestampColumns,
-  TriggerDefinition 
 } from '../types/table-schema.types';
 
 // Standard timestamp columns for all tables
@@ -27,21 +25,13 @@ export const STANDARD_TIMESTAMP_COLUMNS: TimestampColumns = {
   }
 };
 
-// Standard updated_at trigger
-export const UPDATED_AT_TRIGGER: TriggerDefinition = {
-  name: 'update_updated_at',
-  event: 'UPDATE',
-  timing: 'BEFORE',
-  function: 'update_updated_at_column()'
-};
-
 // Shop Info table definition
 export const SHOP_INFO_TABLE: TableDefinition = {
   name: 'shop_info',
   columns: [
     {
-      name: 'id',
-      type: ColumnType.SERIAL,
+      name: 'shop_code',
+      type: ColumnType.VARCHAR,
       primaryKey: true
     },
     {
@@ -94,8 +84,7 @@ export const SHOP_INFO_TABLE: TableDefinition = {
     STANDARD_TIMESTAMP_COLUMNS.created_at,
     STANDARD_TIMESTAMP_COLUMNS.updated_at,
     STANDARD_TIMESTAMP_COLUMNS.deleted_at
-  ],
-  triggers: [UPDATED_AT_TRIGGER]
+  ]
 };
 
 // Product table definition (example for future expansion)
@@ -193,8 +182,7 @@ export const PRODUCTS_TABLE: TableDefinition = {
       name: 'idx_products_status',
       columns: ['status']
     }
-  ],
-  triggers: [UPDATED_AT_TRIGGER]
+  ]
 };
 
 // Order table definition (example for future expansion)
@@ -284,8 +272,7 @@ export const ORDERS_TABLE: TableDefinition = {
       name: 'idx_orders_status',
       columns: ['financial_status', 'fulfillment_status']
     }
-  ],
-  triggers: [UPDATED_AT_TRIGGER]
+  ]
 };
 
 // Registry of all available tables

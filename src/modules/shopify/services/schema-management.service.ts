@@ -59,9 +59,9 @@ export class SchemaManagementService {
   /**
    * Get current schema version for a shop
    */
-  async getSchemaVersion(shopId: number): Promise<SchemaVersion | null> {
+  async getSchemaVersion(shopCode: string): Promise<SchemaVersion | null> {
     try {
-      const schemaName = `shopify_${shopId}`;
+      const schemaName = `shopify_${shopCode}`;
       
       // Check if schema_info table exists
       const schemaInfoExists = await this.schemaBuilder.tableExists('schema_info', schemaName);
@@ -95,8 +95,8 @@ export class SchemaManagementService {
   /**
    * Create schema_info table to track schema versions
    */
-  async createSchemaInfoTable(shopId: number): Promise<void> {
-    const schemaName = `shopify_${shopId}`;
+  async createSchemaInfoTable(shopCode: string): Promise<void> {
+    const schemaName = `shopify_${shopCode}`;
     
     const schemaInfoTable: TableDefinition = {
       name: 'schema_info',
@@ -138,17 +138,17 @@ export class SchemaManagementService {
    * Record schema version
    */
   async recordSchemaVersion(
-    shopId: number, 
+    shopCode: string,
     version: string, 
     description: string, 
     tables: TableName[]
   ): Promise<void> {
-    const schemaName = `shopify_${shopId}`;
+    const schemaName = `shopify_${shopCode}`;
     
     // Ensure schema_info table exists
     const schemaInfoExists = await this.schemaBuilder.tableExists('schema_info', schemaName);
     if (!schemaInfoExists) {
-      await this.createSchemaInfoTable(shopId);
+      await this.createSchemaInfoTable(shopCode);
     }
 
     await this.dataSource.query(`
@@ -160,8 +160,8 @@ export class SchemaManagementService {
   /**
    * Get all tables in a schema
    */
-  async getSchemaTableList(shopId: number): Promise<string[]> {
-    const schemaName = `shopify_${shopId}`;
+  async getSchemaTableList(shopCode: string): Promise<string[]> {
+    const schemaName = `shopify_${shopCode}`;
     
     const result = await this.dataSource.query(`
       SELECT table_name
@@ -177,8 +177,8 @@ export class SchemaManagementService {
   /**
    * Migrate schema to new version
    */
-  async migrateSchema(shopId: number, migration: SchemaMigration): Promise<void> {
-    const schemaName = `shopify_${shopId}`;
+  async migrateSchema(shopCode: string, migration: SchemaMigration): Promise<void> {
+    const schemaName = `shopify_${shopCode}`;
     
     try {
       // Add new tables
@@ -209,9 +209,9 @@ export class SchemaManagementService {
       }
 
       // Record the migration
-      const currentTables = await this.getSchemaTableList(shopId);
+      const currentTables = await this.getSchemaTableList(shopCode);
       await this.recordSchemaVersion(
-        shopId,
+        shopCode,
         migration.toVersion,
         `Migration from ${migration.fromVersion} to ${migration.toVersion}`,
         currentTables as TableName[]
@@ -226,13 +226,13 @@ export class SchemaManagementService {
   /**
    * Validate schema integrity
    */
-  async validateSchema(shopId: number): Promise<{
+  async validateSchema(shopCode: string): Promise<{
     isValid: boolean;
     missingTables: string[];
     extraTables: string[];
   }> {
-    const schemaName = `shopify_${shopId}`;
-    const currentVersion = await this.getSchemaVersion(shopId);
+    const schemaName = `shopify_${shopCode}`;
+    const currentVersion = await this.getSchemaVersion(shopCode);
     
     if (!currentVersion) {
       return {
@@ -242,7 +242,7 @@ export class SchemaManagementService {
       };
     }
 
-    const actualTables = await this.getSchemaTableList(shopId);
+    const actualTables = await this.getSchemaTableList(shopCode);
     const expectedTables = currentVersion.tables;
 
     const missingTables = expectedTables.filter(table => !actualTables.includes(table));

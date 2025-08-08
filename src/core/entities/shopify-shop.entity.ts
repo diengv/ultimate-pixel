@@ -5,8 +5,7 @@ import {
 
 @Entity('shopify_shops', { schema: 'public' })
 export class ShopifyShop extends BaseEntity{
-  @PrimaryColumn()
-  @Column({ type: 'varchar', length: 20, unique: true })
+  @PrimaryColumn({ type: 'varchar', length: 20, unique: true })
   shop_code: string;
 
   @Column({ type: 'varchar', length: 255, unique: true })
@@ -32,6 +31,12 @@ export class ShopifyShop extends BaseEntity{
 
   @Column({ type: 'timestamp', nullable: true })
   authorization_completed_at: Date;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  installation_token: string;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  fingerprint: string;
 
   @BeforeInsert()
   async generateShopCode() {
@@ -64,13 +69,14 @@ export class ShopifyShop extends BaseEntity{
       throw new Error('Không thể tạo shop_code unique sau nhiều lần thử');
     }
 
+    // @ts-ignore
     return shopCode;
   }
 
 
   private createShopCode(): string {
     const now = new Date();
-    const day = now.getDate(); // Lấy ngày trong tháng (1-31)
+    const day = now.getDate();
 
     const dayLetter = String.fromCharCode(65 + ((day - 1) % 26)); // A-Z
 

@@ -7,8 +7,13 @@ import { ShopInfo } from './entities/shop-info.entity';
 import { ShopifyAuthDto } from './shopify.dto';
 import { SchemaBuilderUtil } from './utils/schema-builder.util';
 import { DatabaseFunctionsUtil } from './utils/database-functions.util';
-import { TABLE_REGISTRY, DEFAULT_SHOP_TABLES, TableName } from './configs/table-schemas.config';
+import {
+  TABLE_REGISTRY,
+  DEFAULT_SHOP_TABLES,
+  TableName,
+} from './configs/table-schemas.config';
 import { ShopifyShop } from '../../core/entities/shopify-shop.entity';
+import { EntityTarget } from 'typeorm/common/EntityTarget';
 
 @Injectable()
 export class ShopifyService {
@@ -24,7 +29,10 @@ export class ShopifyService {
     private dataSource: DataSource,
     private configService: ConfigService,
   ) {
-    this.clientSecret = this.configService.get<string>('shopify.clientSecret', 'your-client-secret');
+    this.clientSecret = this.configService.get<string>(
+      'shopify.clientSecret',
+      'your-client-secret',
+    );
     this.schemaBuilder = new SchemaBuilderUtil(this.dataSource);
     this.dbFunctions = new DatabaseFunctionsUtil(this.dataSource);
   }
@@ -36,6 +44,13 @@ export class ShopifyService {
       queryParams.append('host', authData.host);
       queryParams.append('shop', authData.shop);
       queryParams.append('timestamp', authData.timestamp);
+
+      if (authData.state) {
+        queryParams.append('state', authData.state);
+      }
+      if (authData.code) {
+        queryParams.append('code', authData.code);
+      }
 
       // Sort parameters alphabetically
       queryParams.sort();
@@ -58,6 +73,15 @@ export class ShopifyService {
     }
   }
 
+  private generateInstallationToken(): string {
+    return crypto.randomBytes(32).toString('hex');
+  }
+
+  checkInstallationStatus(shopCode: string) {
+    //todo call shopify api with graphql to check if shop is installed. https://shopify.dev/docs/api/admin-graphql/latest/queries/appInstallation
+    return Promise.resolve(false);
+  }
+
   async saveInstallationData(authData: ShopifyAuthDto): Promise<ShopifyShop> {
     try {
       const existingShop = await this.shopifyShopRepository.findOne({
@@ -65,12 +89,29 @@ export class ShopifyService {
       });
 
       if (existingShop) {
+        if (await this.checkInstallationStatus(existingShop.shop_code)) {
+          return existingShop;
+        }
+
+        // Check if fingerprint has changed (reinstallation scenario)
+        const shouldRegenerateToken =
+          !existingShop.fingerprint ||
+          existingShop.fingerprint !== authData.fingerprint;
+
         // Update existing record
         existingShop.host = authData.host;
         existingShop.hmac = authData.hmac;
         existingShop.timestamp = authData.timestamp;
         existingShop.status = 'installing';
         existingShop.installation_started_at = new Date();
+        existingShop.note = authData.note || '';
+        existingShop.fingerprint = authData.fingerprint || '';
+
+        // Regenerate installation_token if fingerprint changed or doesn't exist
+        if (shouldRegenerateToken) {
+          existingShop.installation_token = this.generateInstallationToken();
+        }
+
         return await this.shopifyShopRepository.save(existingShop);
       } else {
         // Create new record
@@ -81,6 +122,9 @@ export class ShopifyService {
           timestamp: authData.timestamp,
           status: 'installing',
           installation_started_at: new Date(),
+          installation_token: this.generateInstallationToken(),
+          note: authData.note,
+          fingerprint: authData.fingerprint,
         });
         return await this.shopifyShopRepository.save(newShop);
       }
@@ -109,14 +153,17 @@ export class ShopifyService {
     }
   }
 
-  async createDynamicSchema(shopId: number, tableNames?: TableName[]): Promise<void> {
+  async createDynamicSchema(
+    shopCode: string,
+    tableNames?: TableName[],
+  ): Promise<void> {
     try {
-      const schemaName = `shopify_${shopId}`;
+      const schemaName = `shopify_${shopCode}`;
       const tablesToCreate = tableNames || DEFAULT_SHOP_TABLES;
-      
+
       // Create schema
       await this.schemaBuilder.createSchema(schemaName);
-      
+
       // Create tables from configuration
       for (const tableName of tablesToCreate) {
         const tableDefinition = TABLE_REGISTRY[tableName];
@@ -127,21 +174,23 @@ export class ShopifyService {
           console.warn(`Table definition not found for: ${tableName}`);
         }
       }
-
     } catch (error) {
       console.error('Error creating dynamic schema:', error);
       throw new Error('Failed to create dynamic schema');
     }
   }
 
-  async createDynamicSchemaByCode(shopCode: string, tableNames?: TableName[]): Promise<void> {
+  async createDynamicSchemaByCode(
+    shopCode: string,
+    tableNames?: TableName[],
+  ): Promise<void> {
     try {
       const schemaName = `shop_${shopCode}`;
       const tablesToCreate = tableNames || DEFAULT_SHOP_TABLES;
-      
+
       // Create schema
       await this.schemaBuilder.createSchema(schemaName);
-      
+
       // Create tables from configuration
       for (const tableName of tablesToCreate) {
         const tableDefinition = TABLE_REGISTRY[tableName];
@@ -152,7 +201,6 @@ export class ShopifyService {
           console.warn(`Table definition not found for: ${tableName}`);
         }
       }
-
     } catch (error) {
       console.error('Error creating dynamic schema by code:', error);
       throw new Error('Failed to create dynamic schema by code');
@@ -162,31 +210,35 @@ export class ShopifyService {
   /**
    * Get repository for entity in specific shop schema
    */
-  getRepositoryForShop<T>(entityClass: any, shopCode: string): Repository<T> {
+  getRepositoryForShop(entityClass: EntityTarget<any>, shopCode: string) {
     const schemaName = `shop_${shopCode}`;
-    return this.dataSource.getRepository(entityClass).extend({
-      metadata: {
-        ...this.dataSource.getRepository(entityClass).metadata,
-        schema: schemaName
-      }
-    });
+
+
+    return this.dataSource.getRepository(ShopInfo)
   }
 
   /**
    * Load entities from shop-specific schema
    */
-  async loadEntitiesFromShopSchema<T>(entityClass: any, shopCode: string, options?: any): Promise<T[]> {
+  async loadEntitiesFromShopSchema<T>(
+    entityClass: any,
+    shopCode: string,
+    options?: any,
+  ): Promise<T[]> {
     const schemaName = `shop_${shopCode}`;
     try {
       const queryBuilder = this.dataSource
         .createQueryBuilder()
         .select('*')
-        .from(`${schemaName}.${entityClass.name.toLowerCase()}`, entityClass.name.toLowerCase());
-      
+        .from(
+          `${schemaName}.${entityClass.name.toLowerCase()}`,
+          entityClass.name.toLowerCase(),
+        );
+
       if (options?.where) {
         queryBuilder.where(options.where);
       }
-      
+
       return await queryBuilder.getRawMany();
     } catch (error) {
       console.error(`Error loading entities from schema ${schemaName}:`, error);
@@ -197,23 +249,31 @@ export class ShopifyService {
   /**
    * Add new table to existing shop schema
    */
-  async addTableToShopSchema(shopId: number, tableName: TableName): Promise<void> {
+  async addTableToShopSchema(
+    shopCode: string,
+    tableName: TableName,
+  ): Promise<void> {
     try {
-      const schemaName = `shopify_${shopId}`;
-      
+      const schemaName = `shopify_${shopCode}`;
+
       // Check if schema exists
       const schemaExists = await this.schemaBuilder.schemaExists(schemaName);
       if (!schemaExists) {
         throw new Error(`Schema ${schemaName} does not exist`);
       }
-      
+
       // Check if table already exists
-      const tableExists = await this.schemaBuilder.tableExists(tableName, schemaName);
+      const tableExists = await this.schemaBuilder.tableExists(
+        tableName,
+        schemaName,
+      );
       if (tableExists) {
-        console.log(`Table ${tableName} already exists in schema ${schemaName}`);
+        console.log(
+          `Table ${tableName} already exists in schema ${schemaName}`,
+        );
         return;
       }
-      
+
       // Create the table
       const tableDefinition = TABLE_REGISTRY[tableName];
       if (tableDefinition) {
@@ -222,7 +282,6 @@ export class ShopifyService {
       } else {
         throw new Error(`Table definition not found for: ${tableName}`);
       }
-
     } catch (error) {
       console.error('Error adding table to shop schema:', error);
       throw new Error('Failed to add table to shop schema');
@@ -232,35 +291,48 @@ export class ShopifyService {
   /**
    * Create multiple tables in shop schema
    */
-  async addTablesToShopSchema(shopId: number, tableNames: TableName[]): Promise<void> {
+  async addTablesToShopSchema(
+    shopCode: string,
+    tableNames: TableName[],
+  ): Promise<void> {
     for (const tableName of tableNames) {
-      await this.addTableToShopSchema(shopId, tableName);
+      await this.addTableToShopSchema(shopCode, tableName);
     }
   }
 
-  async processAuthorization(authData: ShopifyAuthDto): Promise<any> {
+  async processAuthorization(
+    authData: ShopifyAuthDto,
+    shopCode: string,
+  ): Promise<any> {
     try {
       this.logAuthorizationStart(authData.shop); // Step 1
 
       const { clientId, clientSecret } = this.validateConfig(); // Step 1
 
       if (!authData.code) {
-        return this.handleRedirectForAuthorization(authData, clientId); // Step 2
+        return this.handleRedirectForAuthorization(
+          authData,
+          clientId,
+          shopCode,
+        ); // Step 2
       }
 
-      const accessToken = await this.fetchAccessToken(authData, clientId, clientSecret); // Step 3
+      const accessToken = await this.fetchAccessToken(
+        authData,
+        clientId,
+        clientSecret,
+      ); // Step 3
 
-      await this.saveAccessTokenToSchema(authData.shop, accessToken); // Step 4
+      await this.saveAccessTokenToSchema(shopCode, accessToken); // Step 4
 
-      return this.createSuccessResponse(authData.shop, accessToken); // Step 5
-
+      return this.createSuccessResponse(shopCode, accessToken); // Step 5
     } catch (error) {
       console.error('Authorization processing error:', error);
       throw new Error('Failed to process authorization');
     }
   }
 
-// Step 1: Log and Validate Configuration
+  // Step 1: Log and Validate Configuration
   private logAuthorizationStart(shop: string) {
     console.log('Processing authorization for shop:', shop);
   }
@@ -276,13 +348,18 @@ export class ShopifyService {
     return { clientId, clientSecret };
   }
 
-// Step 2: Handle Redirect for Authorization
-  private handleRedirectForAuthorization(authData: ShopifyAuthDto, clientId: string) {
+  // Step 2: Handle Redirect for Authorization
+  private handleRedirectForAuthorization(
+    authData: ShopifyAuthDto,
+    clientId: string,
+    shopCode: string,
+  ) {
     const scopes = 'read_products,write_products,read_orders,write_orders';
     const state = crypto.randomBytes(16).toString('hex');
     const redirectUri = `${this.configService.get<string>('shopify.clientUrl', 'http://localhost:5173')}/authorize`;
 
-    const authUrl = `https://${authData.shop}/admin/oauth/authorize?` +
+    const authUrl =
+      `https://${authData.shop}/admin/oauth/authorize?` +
       `client_id=${clientId}&` +
       `scope=${encodeURIComponent(scopes)}&` +
       `redirect_uri=${encodeURIComponent(redirectUri)}&` +
@@ -296,20 +373,29 @@ export class ShopifyService {
     };
   }
 
-// Step 3: Fetch Access Token
-  private async fetchAccessToken(authData: ShopifyAuthDto, clientId: string, clientSecret: string) {
-    const tokenResponse = await fetch(`https://${authData.shop}/admin/oauth/access_token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: clientId,
-        client_secret: clientSecret,
-        code: authData.code,
-      }),
-    });
+  // Step 3: Fetch Access Token
+  private async fetchAccessToken(
+    authData: ShopifyAuthDto,
+    clientId: string,
+    clientSecret: string,
+  ) {
+    const tokenResponse = await fetch(
+      `https://${authData.shop}/admin/oauth/access_token`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code: authData.code,
+        }),
+      },
+    );
 
     if (!tokenResponse.ok) {
-      throw new Error(`Failed to get access token: ${tokenResponse.statusText}`);
+      throw new Error(
+        `Failed to get access token: ${tokenResponse.statusText}`,
+      );
     }
 
     const tokenData = await tokenResponse.json();
@@ -322,10 +408,10 @@ export class ShopifyService {
     return accessToken;
   }
 
-// Step 4: Save Access Token to Schema
-  private async saveAccessTokenToSchema(shop: string, accessToken: string) {
+  // Step 4: Save Access Token to Schema
+  private async saveAccessTokenToSchema(shopCode: string, accessToken: string) {
     const shopRecord = await this.shopifyShopRepository.findOne({
-      where: { shop },
+      where: { shop_code: shopCode },
     });
 
     if (!shopRecord) {
@@ -333,18 +419,25 @@ export class ShopifyService {
     }
 
     const schemaName = `shopify_${shopRecord.shop_code}`;
-    await this.dataSource.query(
-      `INSERT INTO ${schemaName}.shop_info (shop_domain, access_token, created_at, updated_at) 
-     VALUES ($1, $2, NOW(), NOW()) 
-     ON CONFLICT (shop_domain) 
-     DO UPDATE SET access_token = $2, updated_at = NOW()`,
-      [shop, accessToken],
+    const shopInfoRepo = this.getRepositoryForShop(
+      ShopInfo,
+      shopRecord.shop_code,
+    );
+    await shopInfoRepo.upsert(
+      {
+        shop_code: shopCode,
+        shop_domain: shopRecord.shop,
+        access_token: accessToken,
+      },
+      { conflictPaths: ['shop_code'] },
     );
 
-    console.log(`Access token saved for shop: ${shop} in schema: ${schemaName}`);
+    console.log(
+      `Access token saved for shop: ${shopRecord.shop} in schema: ${schemaName}`,
+    );
   }
 
-// Step 5: Create Success Response
+  // Step 5: Create Success Response
   private createSuccessResponse(shop: string, accessToken: string) {
     return {
       shopDomain: shop,

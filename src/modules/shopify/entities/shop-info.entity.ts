@@ -1,14 +1,13 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
   Column,
-  BaseEntity, PrimaryColumn,
+  BaseEntity,
+  PrimaryColumn,
 } from 'typeorm';
 
 @Entity('shop_info')
-export class ShopInfo extends BaseEntity{
-  @PrimaryColumn()
-  @Column({ type: 'varchar', length: 20, unique: true })
+export class ShopInfo extends BaseEntity {
+  @PrimaryColumn({ type: 'varchar', length: 20, unique: true })
   shop_code: string;
 
   @Column({ type: 'varchar', length: 255 })

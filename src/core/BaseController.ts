@@ -1,8 +1,11 @@
 import { HttpStatus } from '@nestjs/common';
 
 export class BaseController {
-  private shouldIgnoreField(fieldName: string, ignoreFields: string[]): boolean {
-    return ignoreFields.some(pattern => {
+  private shouldIgnoreField(
+    fieldName: string,
+    ignoreFields: string[],
+  ): boolean {
+    return ignoreFields.some((pattern) => {
       if (pattern.startsWith('*') && pattern.endsWith('*')) {
         // Pattern like '*field*' - contains matching
         const searchTerm = pattern.slice(1, -1);
@@ -22,20 +25,32 @@ export class BaseController {
     });
   }
 
-  private filterIgnoredFields(data: any, ignoreFields: string[]): any {
+  private filterIgnoredFields(
+    data: any,
+    ignoreFields: string[],
+    whitelist: string[] = [],
+  ): any {
     if (data === null || data === undefined) {
       return data;
     }
 
     if (Array.isArray(data)) {
-      return data.map(item => this.filterIgnoredFields(item, ignoreFields));
+      return data.map((item) =>
+        this.filterIgnoredFields(item, ignoreFields, whitelist),
+      );
     }
-    console.log(typeof data)
     if (typeof data === 'object' && !(data instanceof Date)) {
       const filtered: any = {};
       for (const [key, value] of Object.entries(data)) {
-        if (!this.shouldIgnoreField(key, ignoreFields)) {
-          filtered[key] = this.filterIgnoredFields(value, ignoreFields);
+        if (
+          !this.shouldIgnoreField(key, ignoreFields) ||
+          whitelist.includes(key)
+        ) {
+          filtered[key] = this.filterIgnoredFields(
+            value,
+            ignoreFields,
+            whitelist,
+          );
         }
       }
       return filtered;
@@ -52,11 +67,17 @@ export class BaseController {
       'created_at',
       'updated_at',
       'deleted_at',
-      'dynamicSchema'
+      'dynamicSchema',
     ];
-    
-    const filteredData = this.filterIgnoredFields(data, ignoreFields);
-    
+
+    const whitelist = ['installation_token'];
+
+    const filteredData = this.filterIgnoredFields(
+      data,
+      ignoreFields,
+      whitelist,
+    );
+
     return {
       success: status <= 200,
       message: message,

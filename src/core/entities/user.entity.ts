@@ -1,6 +1,11 @@
-import { Entity, Column, BeforeInsert } from 'typeorm';
-import { BaseEntity } from '../database/base.entity';
-import { CryptoUtil } from '../../common/utils/crypto.util';
+import {
+  Entity,
+  Column,
+  BeforeInsert,
+  BaseEntity,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
+import { CryptoUtil } from '../common/utils/crypto.util';
 
 export enum UserRole {
   USER = 'user',
@@ -9,6 +14,9 @@ export enum UserRole {
 
 @Entity('users')
 export class User extends BaseEntity {
+  @PrimaryGeneratedColumn()
+  id: number;
+
   @Column({ unique: true })
   email: string;
 

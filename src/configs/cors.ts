@@ -6,7 +6,7 @@ const origin = process.env.CORS_ORIGIN?.split(',') || [];
  *
  */
 export default registerAs('cors', () => ({
-  origin: [
+  origins: [
     process.env.CLIENT_APP_URL,
     '*localhost*',
     '*.diengv.com',
